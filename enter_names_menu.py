@@ -55,12 +55,12 @@ class EnterNamesWindow(QMainWindow):
         self.choose_name.setAlignment(Qt.AlignCenter)
 
         # Set icons for character's
-        bub_pixmap = QPixmap('characters/bub.png')
+        bub_pixmap = QPixmap('characters/bub_right.png')
         self.bub.setPixmap(bub_pixmap.scaled(60,60, Qt.KeepAspectRatio))
         self.bub_name.setFixedSize(300,60)
         self.bub_name.setStyleSheet("background-color: white;""font: 25pt Comic Sans MS;""color: green;""border-radius: 20px;")
 
-        bob_pixmap = QPixmap('characters/bob.png')
+        bob_pixmap = QPixmap('characters/bob_right.png')
         self.bob.setPixmap(bob_pixmap.scaled(60,60, Qt.KeepAspectRatio))
         self.bob_name.setFixedSize(300,60)
         self.bob_name.setStyleSheet("background-color: white;""font: 25pt Comic Sans MS;""color: blue;""border-radius: 20px;")
@@ -106,7 +106,10 @@ class EnterNamesWindow(QMainWindow):
     def onPlayPressed(self):
         if (self.bub_name.text().strip() == "" or self.bob_name.text().strip() == ""):
             print("Empty!")
+            self.choose_name.setStyleSheet("background: transparent;""font: 25pt Comic Sans MS;""color: red;""border-radius: 20px;")
+            self.choose_name.setText("You must enter both names!")
         else:
             print("onPlayPressed")
+            self.win_change_signal.emit()
 
     

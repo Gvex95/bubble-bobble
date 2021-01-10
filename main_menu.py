@@ -63,5 +63,5 @@ class MainWindow(QMainWindow):
         self.close()
 
     def onEnterNames(self):
-        print("onPlayPressed")
+        print("onEnterNamePressed")
         self.win_change_signal.emit()
