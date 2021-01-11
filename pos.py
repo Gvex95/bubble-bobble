@@ -4,22 +4,26 @@ class Position():
         self.coordinate = Coordinate(-1, -1)
         self.available = False
         self.player = None
-        self.enemy = False
+        self.enemy = None
+        self.wall = False
 
-    def setPosition(self, coordinate, available, player, enemy):
+    def setPosition(self, coordinate, player, enemy, wall):
         self.coordinate = coordinate
-        self.available = available
         self.player = player
         self.enemy = enemy
+        self.wall = wall
 
     def setCoordinate(self, coordinate):
         self.coordinate = coordinate
 
+    def setWall(self, isWall):
+        self.wall = isWall
+
     def print(self):
-        print(self.coordinate, self.available, self.player, self.enemy)
+        print(self.coordinate, self.player, self.enemy)
 
     def __str__(self):
-        s = " Cor: " + str(self.coordinate) + " available: " + str(self.available) + " player: " + str(self.player)
+        s = " Cor: " + str(self.coordinate) + " player: " + str(self.player)
         return s 
 
 
@@ -28,9 +32,9 @@ class Coordinate():
         self.row = row
         self.column = column
 
-    def setCoordinate(self, coordinate):
-        self.row = coordinate[0]
-        self.column = coordinate[1]
+    def setCoordinate(self, row, column):
+        self.row = row
+        self.column = column
 
     def isInit(self):
         if self.row == -1:

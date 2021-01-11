@@ -49,125 +49,123 @@ class Map(QFrame):
         ]
 
         self.initPositions()
-        self.initFreeCoordinates()
 
     def initPositions(self):
-        available = False
-        player = None
         index = 0        
         for row in range(16):
             for column in range(16):
-                if self.board[row][column] == 1:
-                    available = True
-                else:
-                    available = False
                 p = pos.Position()
-                p.coordinate = pos.Coordinate(row,column)
-                p.player = player
-                p.available = available
-                p.enemy = False
-                
-                index = 16*row + column
-                #print("Inserting at pos:", index)
+                p.setPosition(pos.Coordinate(row, column), None, None, False)
+                if self.board[row][column] == 1:
+                    self.freeCoordinates.append(p.coordinate)
+                else:
+                    p.setWall(True)
+                index = 16 * row + column
                 self.allPositions.insert(index, p)
 
-    def initFreeCoordinates(self):
-        for position in self.allPositions:
-            if position.available == True:
-                self.freeCoordinates.append(position.coordinate)
-
-    def getFreeCoordinates(self):
-        return self.freeCoordinates
-
-    def updateAllPositions(self, entity, oldCoordinate, newPosition):
+    def updateAllPositions(self, entity, oldCoordinate, newCoordinate):
         for p in self.allPositions:
-            if p.coordinate == newPosition.coordinate:
+            if p.coordinate == newCoordinate:
                 if isinstance(entity, player.Player):
-                    print("Player: ", entity, " have landed on coordinate: ", newPosition.coordinate)
+                    #print("Player: ", entity, " have landed on coordinate: ", newCoordinate)
                     p.player = entity
-                    print("MJAU: ", p.player)
-                    print(p)
-                    #self.test()
             
             if p.coordinate == oldCoordinate:
                 if isinstance(entity, player.Player):
-                    print("Player: ", entity, " have removed coordinate: ", oldCoordinate)
+                    #print("Player: ", entity, " have been removed from coordinate: ", oldCoordinate)
                     p.player = None
 
 
-    def updateFreeCoordinates(self, oldCoordinate, newPosition):
+    def updateFreeCoordinates(self, oldCoordinate, newCoordinate):
         # We have moved to some new position. Need to remove that coordinates from list
-        for cordinate in self.freeCoordinates:
-            if cordinate == newPosition.coordinate:
-                #print("Removing newPosition coordinate: ", newPosition.coordinate)
-                self.freeCoordinates.remove(newPosition.coordinate)
+        if newCoordinate in self.freeCoordinates:
+            #print("Removing coordinate from list of free: ", newCoordinate)
+            self.freeCoordinates.remove(newCoordinate)
         
         # We have moved from some coordinate. If it is not init coordinates(-1,-1), we need to add
         # them to list of free coordinates
-        #print("Old coordinate is: ", oldCoordinate)
         if oldCoordinate == pos.Coordinate(-1,-1):
             #print("Initial moving of players...")
             return
-        # If not initial, than add coordinate in list of free, if not already there
-        for freeCoordinate in self.freeCoordinates:
-            if freeCoordinate == oldCoordinate:
-                    # Is this really needed?
-                    #print("Old coordinate already in list of free")
-                    return
-        #print("Apending old coordinate: ", oldCoordinate)
-        self.freeCoordinates.append(oldCoordinate)
-    
+        if oldCoordinate not in self.freeCoordinates:
+            #print("Adding old coordinate: ", oldCoordinate, " to the list of free coordinates!")
+            self.freeCoordinates.append(oldCoordinate)
+
     # This method will update list of free positions, but also will update
     # list of all positions, because we draw map based on that list
-    def updateMap(self, oldCoordinate, newPosition, entity):
-        self.updateFreeCoordinates(oldCoordinate, newPosition)
-        self.updateAllPositions(entity, oldCoordinate, newPosition)
-    
-    def test(self):
-        for p in self.allPositions:
-            if p.player is not None:
-                print(p.player)
+    def updateMap(self, oldCoordinate, newCoordinate, entity):
+        self.updateAllPositions(entity, oldCoordinate, newCoordinate)
+        self.updateFreeCoordinates(oldCoordinate, newCoordinate)
+        
+    def isInMap(self, coordinate):
+        if coordinate.row > 0 and coordinate.row < 15 and coordinate.column > 0 and coordinate.column < 15:
+            return True
+        else:
+            print("Coordinate not in map: ", coordinate)
+            return False
 
+    def isPlayerOn(self, coordinate):
+        for p in self.allPositions:
+            if p.coordinate == coordinate:
+                if p.player is not None:
+                    return True
+                else:
+                    return False
+    
+    def isWallOrPlayer(self, coordinate):
+        for pos in self.allPositions:
+            if pos.coordinate == coordinate:
+                if pos.player is not None:
+                    return True
+                else:
+                    return pos.wall
+    
+    
     def paintEvent(self, event):
-        #print("Event is: ", event)
         painter = QPainter(self)
         for p in self.allPositions:
-            if p.player is not None:
-                self.drawPlayer(p, painter)
+            if isinstance(p.player,player.Player):
+                if p.wall:
+                    self.drawPlayer(p, painter, True)
+                else:
+                    self.drawPlayer(p, painter, False)
             else:
-                if p.available == False:
+                if p.wall:
                     self.drawWall(p, painter)
                 else:
                     self.drawMapBlock(p, painter)
-        
+        self.drawNames(painter)
         self.drawLifes(painter)
 
-    def drawPlayer(self, position, painter):
+    def drawPlayer(self, position, painter, inWall):
         # When drawing painter first need to draw block of map
-        print("drawPlayer called!")
         self.drawMapBlock(position, painter)
+        if inWall:
+            self.drawWall(position, painter)
         if position.player.player_id == 1:
-            dir = None
-            if position.player.player_direction == "right":
-                dir = position.player.player_label_right
-            else:
-                dir = position.player.player_label_left
-            print(dir)
+            if not position.player.switchLabelForced:
+                if position.player.player_action == "move_right" or position.player.player_action == "init":
+                    position.player.player_label = position.player.player_label_right
+                elif position.player.player_action == "move_left":
+                    position.player.player_label = position.player.player_label_left
             painter.drawPixmap(
                 position.coordinate.column * self.block_w, 
                 position.coordinate.row*self.block_h,
                 self.block_w,
                 self.block_h,
-                QPixmap(dir))
+                QPixmap(position.player.player_label))
         else:
+            if not position.player.switchLabelForced:
+                if position.player.player_action == "move_left" or position.player.player_action == "init":
+                    position.player.player_label = position.player.player_label_left
+                elif position.player.player_action == "move_right":
+                    position.player.player_label = position.player.player_label_right
             painter.drawPixmap(
                 position.coordinate.column * self.block_w, 
                 position.coordinate.row*self.block_h,
                 self.block_w,
                 self.block_h,
-                QPixmap(position.player.player_label_left))
-
-
+                QPixmap(position.player.player_label))
     def drawWall(self, position, painter):
         painter.drawPixmap(position.coordinate.column * self.block_w,
             position.coordinate.row*self.block_h,
@@ -182,6 +180,9 @@ class Map(QFrame):
             self.block_h,
             Qt.black)
 
+    def drawNames(self, painter):
+        painter.drawText(P1_LIFE1_POS[0], 0*self.block_h, "Hello")
+
     def drawLifes(self, painter):
         painter.drawPixmap(P1_LIFE1_POS[0], P1_LIFE1_POS[1]*self.block_h, self.block_w, self.block_h, QPixmap('characters/bub_right.png'))
         painter.drawPixmap(P1_LIFE2_POS[0]*self.block_w, P1_LIFE2_POS[1]*self.block_h, self.block_w, self.block_h, QPixmap('characters/bub_right.png'))
@@ -190,5 +191,4 @@ class Map(QFrame):
         painter.drawPixmap(P2_LIFE1_POS[0]*self.block_w, P2_LIFE1_POS[1]*self.block_h, self.block_w, self.block_h, QPixmap('characters/bob_left.png'))
         painter.drawPixmap(P2_LIFE2_POS[0]*self.block_w, P2_LIFE2_POS[1]*self.block_h, self.block_w, self.block_h, QPixmap('characters/bob_left.png'))
         painter.drawPixmap(P2_LIFE3_POS[0]*self.block_w, P2_LIFE3_POS[1]*self.block_h, self.block_w, self.block_h, QPixmap('characters/bob_left.png'))
-        #sleep(1)
         self.update()
