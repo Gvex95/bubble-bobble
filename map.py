@@ -3,15 +3,16 @@ from PyQt5.QtGui import (QPainter, QPixmap, QIcon, QMovie, QTextDocument)
 from PyQt5.QtCore import Qt, QThreadPool, pyqtSlot, QCoreApplication
 import pos
 import player
+import enemy
 from time import sleep
 
-P1_LIFE1_POS = (0, 15)
-P1_LIFE2_POS = (1, 15)
-P1_LIFE3_POS = (2, 15)
+P1_LIFE1 = pos.Coordinate(15, 0)
+P1_LIFE2 = pos.Coordinate(15, 1)
+P1_LIFE3 = pos.Coordinate(15, 2)
 
-P2_LIFE1_POS = (13, 15)
-P2_LIFE2_POS = (14, 15)
-P2_LIFE3_POS = (15, 15)
+P2_LIFE1 = pos.Coordinate(15, 13)
+P2_LIFE2 = pos.Coordinate(15, 14)
+P2_LIFE3 = pos.Coordinate(15, 15)
 
 class Map(QFrame):
     def __init__(self):
@@ -62,18 +63,23 @@ class Map(QFrame):
                     p.setWall(True)
                 index = 16 * row + column
                 self.allPositions.insert(index, p)
+        #print("map init done")
 
     def updateAllPositions(self, entity, oldCoordinate, newCoordinate):
         for p in self.allPositions:
             if p.coordinate == newCoordinate:
+                #print("Entity: ", entity, " have landed on coordinate: ", newCoordinate)
                 if isinstance(entity, player.Player):
-                    #print("Player: ", entity, " have landed on coordinate: ", newCoordinate)
                     p.player = entity
+                elif isinstance(entity, enemy.Enemy):
+                    p.enemy = entity
             
             if p.coordinate == oldCoordinate:
+                #print("Entity: ", entity, " have been removed from coordinate: ", oldCoordinate)
                 if isinstance(entity, player.Player):
-                    #print("Player: ", entity, " have been removed from coordinate: ", oldCoordinate)
                     p.player = None
+                elif isinstance(entity, enemy.Enemy):
+                    p.enemy = None
 
 
     def updateFreeCoordinates(self, oldCoordinate, newCoordinate):
@@ -104,6 +110,27 @@ class Map(QFrame):
             print("Coordinate not in map: ", coordinate)
             return False
 
+    # Refactor!!!
+    def isCoordinateAvailable(self, checkCoordinate, entity):
+        if entity.action == "jump":
+            if self.isInMap(checkCoordinate):
+                if isinstance (entity, player.Player):
+                    return not self.isPlayerOn(checkCoordinate)
+                elif isinstance (entity, enemy.Enemy):
+                    return not self.isEnemyOn(checkCoordinate)
+        else:
+            return checkCoordinate in self.freeCoordinates
+    
+    # Refactor, move to utils
+    def isEnemyOn(self, coordinate):
+        for p in self.allPositions:
+            if p.coordinate == coordinate:
+                if p.enemy is not None:
+                    return True
+                else:
+                    return False
+    
+    # Refactor, move to utils
     def isPlayerOn(self, coordinate):
         for p in self.allPositions:
             if p.coordinate == coordinate:
@@ -112,6 +139,7 @@ class Map(QFrame):
                 else:
                     return False
     
+    # Refactor, move to utils
     def isWallOrPlayer(self, coordinate):
         for pos in self.allPositions:
             if pos.coordinate == coordinate:
@@ -122,57 +150,65 @@ class Map(QFrame):
     
     
     def paintEvent(self, event):
+        #print("painting event called!")
         painter = QPainter(self)
         for p in self.allPositions:
             if isinstance(p.player,player.Player):
                 if p.wall:
                     self.drawPlayer(p, painter, True)
                 else:
+                    #print("Drawing player")
                     self.drawPlayer(p, painter, False)
+            
+            elif isinstance(p.enemy,enemy.Enemy):
+                if p.wall:
+                    #print("drawing enemy 1")
+                    self.drawEnemy(p, painter, True)
+                else:
+                    #print("drawing enemy 2")
+                    self.drawEnemy(p, painter, False)
             else:
                 if p.wall:
                     self.drawWall(p, painter)
                 else:
                     self.drawMapBlock(p, painter)
-        self.drawNames(painter)
+        #self.drawNames(painter)
         self.drawLifes(painter)
 
+    
+    def drawEnemy(self, position, painter, inWall):
+        self.drawMapBlock(position, painter)
+        if inWall:
+            self.drawWall(position, painter)
+        if position.enemy.action == "move_left" or position.enemy.action == "init" or position.enemy.action == "gravity":
+            position.enemy.label = position.enemy.label_left
+        elif position.enemy.action == "move_right":
+            position.enemy.label = position.enemy.label_right
+        #print("drawing enemy: ", position.enemy, " at coordinate: ", position.coordinate, " with label: ", position.enemy.label)
+        self.drawPixmap(painter, position.coordinate, position.enemy.label)
+    
     def drawPlayer(self, position, painter, inWall):
         # When drawing painter first need to draw block of map
         self.drawMapBlock(position, painter)
         if inWall:
             self.drawWall(position, painter)
-        if position.player.player_id == 1:
-            if not position.player.switchLabelForced:
-                if position.player.player_action == "move_right" or position.player.player_action == "init":
-                    position.player.player_label = position.player.player_label_right
-                elif position.player.player_action == "move_left":
-                    position.player.player_label = position.player.player_label_left
-            painter.drawPixmap(
-                position.coordinate.column * self.block_w, 
-                position.coordinate.row*self.block_h,
-                self.block_w,
-                self.block_h,
-                QPixmap(position.player.player_label))
+        if position.player.id == 1:
+            if position.player.action == "move_right" or position.player.action == "init":
+                position.player.label = position.player.label_right
+            elif position.player.action == "move_left":
+                position.player.label = position.player.label_left            
+            self.drawPixmap(painter, position.coordinate, position.player.label)
         else:
             if not position.player.switchLabelForced:
-                if position.player.player_action == "move_left" or position.player.player_action == "init":
-                    position.player.player_label = position.player.player_label_left
-                elif position.player.player_action == "move_right":
-                    position.player.player_label = position.player.player_label_right
-            painter.drawPixmap(
-                position.coordinate.column * self.block_w, 
-                position.coordinate.row*self.block_h,
-                self.block_w,
-                self.block_h,
-                QPixmap(position.player.player_label))
+                if position.player.action == "move_left" or position.player.action == "init":
+                    position.player.label = position.player.label_left
+                elif position.player.action == "move_right":
+                    position.player.label = position.player.label_right
+            self.drawPixmap(painter, position.coordinate, position.player.label)
+        
     def drawWall(self, position, painter):
-        painter.drawPixmap(position.coordinate.column * self.block_w,
-            position.coordinate.row*self.block_h,
-            self.block_w,
-            self.block_h,
-            QPixmap('map/map_block.png'))    
-
+        self.drawPixmap(painter, position.coordinate, 'map/map_block.png')
+        
     def drawMapBlock(self, position, painter):
         painter.fillRect(position.coordinate.column * self.block_w, 
             position.coordinate.row*self.block_h,
@@ -181,14 +217,18 @@ class Map(QFrame):
             Qt.black)
 
     def drawNames(self, painter):
-        painter.drawText(P1_LIFE1_POS[0], 0*self.block_h, "Hello")
+        pass
+        #painter.drawText(P1_LIFE1_POS[0], 0*self.block_h, "Hello")
 
     def drawLifes(self, painter):
-        painter.drawPixmap(P1_LIFE1_POS[0], P1_LIFE1_POS[1]*self.block_h, self.block_w, self.block_h, QPixmap('characters/bub_right.png'))
-        painter.drawPixmap(P1_LIFE2_POS[0]*self.block_w, P1_LIFE2_POS[1]*self.block_h, self.block_w, self.block_h, QPixmap('characters/bub_right.png'))
-        painter.drawPixmap(P1_LIFE3_POS[0]*self.block_w, P1_LIFE3_POS[1]*self.block_h, self.block_w, self.block_h, QPixmap('characters/bub_right.png'))
+        self.drawPixmap(painter, P1_LIFE1, 'characters/bub_right.png')
+        self.drawPixmap(painter, P1_LIFE2, 'characters/bub_right.png')
+        self.drawPixmap(painter, P1_LIFE3, 'characters/bub_right.png')
+        
+        self.drawPixmap(painter, P2_LIFE1, 'characters/bob_left.png')
+        self.drawPixmap(painter, P2_LIFE2, 'characters/bob_left.png')
+        self.drawPixmap(painter, P2_LIFE3, 'characters/bob_left.png')
 
-        painter.drawPixmap(P2_LIFE1_POS[0]*self.block_w, P2_LIFE1_POS[1]*self.block_h, self.block_w, self.block_h, QPixmap('characters/bob_left.png'))
-        painter.drawPixmap(P2_LIFE2_POS[0]*self.block_w, P2_LIFE2_POS[1]*self.block_h, self.block_w, self.block_h, QPixmap('characters/bob_left.png'))
-        painter.drawPixmap(P2_LIFE3_POS[0]*self.block_w, P2_LIFE3_POS[1]*self.block_h, self.block_w, self.block_h, QPixmap('characters/bob_left.png'))
+    def drawPixmap(self, painter, coordinate, image):
+        painter.drawPixmap(coordinate.column * self.block_w, coordinate.row * self.block_h, self.block_w, self.block_h, QPixmap(image))
         self.update()
