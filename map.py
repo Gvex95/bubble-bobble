@@ -4,15 +4,11 @@ from PyQt5.QtCore import Qt, QThreadPool, pyqtSlot, QCoreApplication
 import pos
 import player
 import enemy
+import bullet
 from time import sleep
 
-P1_LIFE1 = pos.Coordinate(15, 0)
-P1_LIFE2 = pos.Coordinate(15, 1)
-P1_LIFE3 = pos.Coordinate(15, 2)
-
-P2_LIFE1 = pos.Coordinate(15, 13)
-P2_LIFE2 = pos.Coordinate(15, 14)
-P2_LIFE3 = pos.Coordinate(15, 15)
+LIVES_ROW_POS = 15
+P2_LIFE_1_COLUMN = 13
 
 class Map(QFrame):
     def __init__(self):
@@ -29,6 +25,10 @@ class Map(QFrame):
 
         # List of all position
         self.allPositions = []
+
+        # Number of lives for players. For drawing lives on map
+        self.p1_lives = 3
+        self.p2_lives = 3
 
         self.board = [
             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -49,40 +49,33 @@ class Map(QFrame):
             [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         ]
 
-        self.initPositions()
+        self._initPositions()
 
-    def initPositions(self):
+    def _initPositions(self):
         index = 0        
         for row in range(16):
             for column in range(16):
                 p = pos.Position()
-                p.setPosition(pos.Coordinate(row, column), None, None, False)
+                p.setPosition(pos.Coordinate(row, column), None, False)
                 if self.board[row][column] == 1:
                     self.freeCoordinates.append(p.coordinate)
                 else:
                     p.setWall(True)
                 index = 16 * row + column
                 self.allPositions.insert(index, p)
-        #print("map init done")
 
-    def updateAllPositions(self, entity, oldCoordinate, newCoordinate):
+    def _updateAllPositions(self, entity, oldCoordinate, newCoordinate):
         for p in self.allPositions:
             if p.coordinate == newCoordinate:
                 #print("Entity: ", entity, " have landed on coordinate: ", newCoordinate)
-                if isinstance(entity, player.Player):
-                    p.player = entity
-                elif isinstance(entity, enemy.Enemy):
-                    p.enemy = entity
+                p.entity = entity
             
             if p.coordinate == oldCoordinate:
                 #print("Entity: ", entity, " have been removed from coordinate: ", oldCoordinate)
-                if isinstance(entity, player.Player):
-                    p.player = None
-                elif isinstance(entity, enemy.Enemy):
-                    p.enemy = None
+                p.entity = None
 
 
-    def updateFreeCoordinates(self, oldCoordinate, newCoordinate):
+    def _updateFreeCoordinates(self, oldCoordinate, newCoordinate):
         # We have moved to some new position. Need to remove that coordinates from list
         if newCoordinate in self.freeCoordinates:
             #print("Removing coordinate from list of free: ", newCoordinate)
@@ -100,8 +93,8 @@ class Map(QFrame):
     # This method will update list of free positions, but also will update
     # list of all positions, because we draw map based on that list
     def updateMap(self, oldCoordinate, newCoordinate, entity):
-        self.updateAllPositions(entity, oldCoordinate, newCoordinate)
-        self.updateFreeCoordinates(oldCoordinate, newCoordinate)
+        self._updateAllPositions(entity, oldCoordinate, newCoordinate)
+        self._updateFreeCoordinates(oldCoordinate, newCoordinate)
         
     def isInMap(self, coordinate):
         if coordinate.row > 0 and coordinate.row < 15 and coordinate.column > 0 and coordinate.column < 15:
@@ -110,125 +103,179 @@ class Map(QFrame):
             print("Coordinate not in map: ", coordinate)
             return False
 
-    # Refactor!!!
+    # Method for checking if cordinate is available when jump or move is performed
     def isCoordinateAvailable(self, checkCoordinate, entity):
         if entity.action == "jump":
             if self.isInMap(checkCoordinate):
-                if isinstance (entity, player.Player):
-                    return not self.isPlayerOn(checkCoordinate)
-                elif isinstance (entity, enemy.Enemy):
-                    return not self.isEnemyOn(checkCoordinate)
+                entityAt = self.getEntityAtCoordinate(checkCoordinate)
+                if self.isPlayer(entity):
+                    # If we are player, and we are imune, we can go through enemy and through player
+                    if entity.imune:
+                        return True
+                    else:
+                        return not self.isPlayer(entityAt)
+                elif self.isEnemy(entity):
+                    # TODO: Check if enemy can get through player if player is imuned??
+                    return not self.isEnemy(entityAt)
         else:
-            return checkCoordinate in self.freeCoordinates
+            # If player is imuned, it can go through enemy, fuck yeaaah
+            if self.isPlayer(entity):
+                if not entity.imune:
+                    return checkCoordinate in self.freeCoordinates
+                else:
+                    atCoordinate = self.getEntityAtCoordinate(checkCoordinate)
+                    if self.isEnemy(atCoordinate):
+                        return True
+                    else:
+                        return checkCoordinate in self.freeCoordinates
+            else:
+                return checkCoordinate in self.freeCoordinates
     
-    # Refactor, move to utils
-    def isEnemyOn(self, coordinate):
+    # Method for checking if we should apply coordinate on passed entity, by checking what is
+    # bellow us
+    def isGravityNeeded(self, entity):
+        coordinateBellow = pos.Coordinate(entity.coordinate.row + 1, entity.coordinate.column)
+        entityAtCoordinate = self.getEntityAtCoordinate(coordinateBellow)
+        
+        if self.isPlayer(entity):
+            # Player can land on:
+            # 1. Wall
+            # 2. Another player
+            # 3. On bubble -> TODO    
+            if self._isWall(coordinateBellow) or self.isPlayer(entityAtCoordinate):
+                return False
+            else:
+                return True
+
+        elif self.isEnemy(entity):
+            # Enemy can land on
+            # 1. On wall
+            # 2. On another enemy
+            if self._isWall(coordinateBellow) or self.isEnemy(entityAtCoordinate):
+                return False
+            else:
+                return True
+
+    def getEntityAtCoordinate(self, coordinate):
         for p in self.allPositions:
             if p.coordinate == coordinate:
-                if p.enemy is not None:
-                    return True
-                else:
-                    return False
+                return p.entity
+                
+    # Destroy entitity from coordinates he was on
+    # Add that coordinates to list of free coordinates
+    def destroyEntity(self, entity):
+        for pos in self.allPositions:
+            if pos.coordinate == entity.coordinate:
+                if self.isPlayer(entity):
+                    if entity.id == 1:
+                        if self.p1_lives is not 0:
+                            self.p1_lives -= 1
+                    else:
+                        if self.p2_lives is not 0:
+                            self.p2_lives -= 1
+                    pos.entity = None
+                    if pos.coordinate not in self.freeCoordinates:
+                        self.freeCoordinates.append(pos.coordinate)
     
-    # Refactor, move to utils
-    def isPlayerOn(self, coordinate):
-        for p in self.allPositions:
-            if p.coordinate == coordinate:
-                if p.player is not None:
-                    return True
-                else:
-                    return False
-    
-    # Refactor, move to utils
-    def isWallOrPlayer(self, coordinate):
+    def _isWall(self, coordinate):
         for pos in self.allPositions:
             if pos.coordinate == coordinate:
-                if pos.player is not None:
-                    return True
-                else:
-                    return pos.wall
+                return pos.wall
+
+    # Maybe move this 3 methods to some util?
+    def isPlayer(self, entity):
+        return isinstance(entity, player.Player)
     
+    def isEnemy(self, entity):
+        return isinstance(entity, enemy.Enemy)
+    
+    def isBullet(self, entity):
+        return isinstance(entity, bullet.Bullet)
     
     def paintEvent(self, event):
-        #print("painting event called!")
         painter = QPainter(self)
         for p in self.allPositions:
-            if isinstance(p.player,player.Player):
-                if p.wall:
-                    self.drawPlayer(p, painter, True)
-                else:
-                    #print("Drawing player")
-                    self.drawPlayer(p, painter, False)
-            
-            elif isinstance(p.enemy,enemy.Enemy):
-                if p.wall:
-                    #print("drawing enemy 1")
-                    self.drawEnemy(p, painter, True)
-                else:
-                    #print("drawing enemy 2")
-                    self.drawEnemy(p, painter, False)
+            if p.entity is not None:
+                self._drawEntity(p, painter)
             else:
                 if p.wall:
-                    self.drawWall(p, painter)
+                    self._drawWall(p, painter)
                 else:
-                    self.drawMapBlock(p, painter)
-        #self.drawNames(painter)
-        self.drawLifes(painter)
+                    self._drawMapBlock(p, painter)
+        self._drawP1Lives(painter, self.p1_lives)
+        self._drawP2Lives(painter, self.p2_lives)
+
+    def _drawEntity(self, position, painter):
+        self._drawMapBlock(position, painter)
+        if position.wall:
+            self._drawWall(position, painter)
+
+        # Draw player
+        if self.isPlayer(position.entity):
+            if position.entity.id == 1:
+                self._drawPlayer1(position, painter)
+            else:
+                self._drawPlayer2(position, painter)
+        # Draw enemy
+        elif self.isEnemy(position.entity):
+            self._drawEnemy(position, painter)
+
+    def _drawPlayer1(self, position, painter):
+        if position.entity.action == "move_right" or position.entity.action == "init":
+            if position.entity.imune:
+                position.entity.label = position.entity.label_right_imuned
+            else:
+                position.entity.label = position.entity.label_right
+        elif position.entity.action == "move_left":
+            if position.entity.imune:
+                position.entity.label = position.entity.label_left_imuned
+            else:
+                position.entity.label = position.entity.label_left            
+
+        self._drawPixmap(painter, position.coordinate, position.entity.label)
+
+    def _drawPlayer2(self, position, painter):
+        if position.entity.action == "move_left" or position.entity.action == "init":
+            if position.entity.imune:
+                position.entity.label = position.entity.label_left_imuned
+            else:
+                position.entity.label = position.entity.label_left
+        elif position.entity.action == "move_right":
+            if position.entity.imune:
+                position.entity.label = position.entity.label_right_imuned
+            else:
+                position.entity.label = position.entity.label_right
+        
+        self._drawPixmap(painter, position.coordinate, position.entity.label)
+
+
+    def _drawEnemy(self, position, painter):
+        if position.entity.action == "move_left" or position.entity.action == "init" or position.entity.action == "gravity":
+            position.entity.label = position.entity.label_left
+        elif position.entity.action == "move_right":
+            position.entity.label = position.entity.label_right
+        
+        self._drawPixmap(painter, position.coordinate, position.entity.label)
 
     
-    def drawEnemy(self, position, painter, inWall):
-        self.drawMapBlock(position, painter)
-        if inWall:
-            self.drawWall(position, painter)
-        if position.enemy.action == "move_left" or position.enemy.action == "init" or position.enemy.action == "gravity":
-            position.enemy.label = position.enemy.label_left
-        elif position.enemy.action == "move_right":
-            position.enemy.label = position.enemy.label_right
-        #print("drawing enemy: ", position.enemy, " at coordinate: ", position.coordinate, " with label: ", position.enemy.label)
-        self.drawPixmap(painter, position.coordinate, position.enemy.label)
-    
-    def drawPlayer(self, position, painter, inWall):
-        # When drawing painter first need to draw block of map
-        self.drawMapBlock(position, painter)
-        if inWall:
-            self.drawWall(position, painter)
-        if position.player.id == 1:
-            if position.player.action == "move_right" or position.player.action == "init":
-                position.player.label = position.player.label_right
-            elif position.player.action == "move_left":
-                position.player.label = position.player.label_left            
-            self.drawPixmap(painter, position.coordinate, position.player.label)
-        else:
-            if not position.player.switchLabelForced:
-                if position.player.action == "move_left" or position.player.action == "init":
-                    position.player.label = position.player.label_left
-                elif position.player.action == "move_right":
-                    position.player.label = position.player.label_right
-            self.drawPixmap(painter, position.coordinate, position.player.label)
+    def _drawWall(self, position, painter):
+        self._drawPixmap(painter, position.coordinate, 'map/map_block.png')
         
-    def drawWall(self, position, painter):
-        self.drawPixmap(painter, position.coordinate, 'map/map_block.png')
-        
-    def drawMapBlock(self, position, painter):
+    def _drawMapBlock(self, position, painter):
         painter.fillRect(position.coordinate.column * self.block_w, 
             position.coordinate.row*self.block_h,
             self.block_w,
             self.block_h,
             Qt.black)
 
-    def drawNames(self, painter):
-        pass
-        #painter.drawText(P1_LIFE1_POS[0], 0*self.block_h, "Hello")
-
-    def drawLifes(self, painter):
-        self.drawPixmap(painter, P1_LIFE1, 'characters/bub_right.png')
-        self.drawPixmap(painter, P1_LIFE2, 'characters/bub_right.png')
-        self.drawPixmap(painter, P1_LIFE3, 'characters/bub_right.png')
+    def _drawP1Lives(self, painter, numOfLives):
+        for i in range(numOfLives):
+            self._drawPixmap(painter, pos.Coordinate(LIVES_ROW_POS, i), 'characters/bub_right.png')
+    
+    def _drawP2Lives(self, painter, numOfLives):
+        for i in range(numOfLives):
+            self._drawPixmap(painter, pos.Coordinate(LIVES_ROW_POS, P2_LIFE_1_COLUMN + i), 'characters/bob_left.png')
         
-        self.drawPixmap(painter, P2_LIFE1, 'characters/bob_left.png')
-        self.drawPixmap(painter, P2_LIFE2, 'characters/bob_left.png')
-        self.drawPixmap(painter, P2_LIFE3, 'characters/bob_left.png')
-
-    def drawPixmap(self, painter, coordinate, image):
+    def _drawPixmap(self, painter, coordinate, image):
         painter.drawPixmap(coordinate.column * self.block_w, coordinate.row * self.block_h, self.block_w, self.block_h, QPixmap(image))
         self.update()

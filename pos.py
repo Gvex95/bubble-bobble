@@ -2,15 +2,12 @@
 class Position():
     def __init__(self):
         self.coordinate = Coordinate(-1, -1)
-        self.available = False
-        self.player = None
-        self.enemy = None
+        self.entity = None
         self.wall = False
 
-    def setPosition(self, coordinate, player, enemy, wall):
+    def setPosition(self, coordinate, entity, wall):
         self.coordinate = coordinate
-        self.player = player
-        self.enemy = enemy
+        self.entity = entity
         self.wall = wall
 
     def setCoordinate(self, coordinate):
@@ -20,10 +17,10 @@ class Position():
         self.wall = isWall
 
     def print(self):
-        print(self.coordinate, self.player, self.enemy)
+        print(self.coordinate, self.entity)
 
     def __str__(self):
-        s = " Cor: " + str(self.coordinate) + " player: " + str(self.player)
+        s = "Entity: " + str(self.entity) + " at coordinate" + str(self.coordinate)
         return s 
 
 

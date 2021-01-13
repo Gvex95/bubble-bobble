@@ -10,8 +10,6 @@ import player
 import pos
 import enemy
 
-
-from multiprocessing import Lock
 from threading import Thread
 from time import sleep
 
@@ -21,7 +19,6 @@ SCREEN_HEIGHT = 960
 P1_INIT_COORDINATE = pos.Coordinate(14,1)
 P2_INIT_COORDINATE = pos.Coordinate(14,14)
 ENEMY_INIT_COORDIATE = pos.Coordinate(5,7)
-mutex = Lock()
 
 class GameWindow(QMainWindow):
 
@@ -51,19 +48,19 @@ class GameWindow(QMainWindow):
         # Create and sutup players
         self.player1 = player.Player(list_of_names[0], 1)
         self.player2 = player.Player(list_of_names[1], 2)
-        self.player1.setupPlayer()
-        self.player2.setupPlayer()
+        self.player1.setupPlayer(P1_INIT_COORDINATE)
+        self.player2.setupPlayer(P2_INIT_COORDINATE)
 
         self.running = True
 
         # Setup initial level number and number of enemies
         self.level = 1
-        self.numOfEnemies = 3
-        self.thinkTime = 0.4
+        self.numOfEnemies = 2
+        self.thinkTime = 0.3
 
         # Move player to their initial positions
-        self.gameEngine.move(P1_INIT_COORDINATE, self.player1)
-        self.gameEngine.move(P2_INIT_COORDINATE, self.player2)
+        self.gameEngine.move(self.player1.initCoordinate, self.player1)
+        self.gameEngine.move(self.player2.initCoordinate, self.player2)
 
         self.init_ui()
 
@@ -143,6 +140,27 @@ class GameWindow(QMainWindow):
     # Finding which player is closer to this enemy. Findig is done by checking diff in
     # list of available positions
     def getCloserPlayer(self, enemy):
+        print("Get closer player called")
+        # If both players are dead, stop game
+        if not self.gameEngine.isAlive(self.player1) and not self.gameEngine.isAlive(self.player2):
+            print("Killed both players, stopping game...")
+            self.running = False
+        else:
+            # If p1 is dead, chase p2
+            if not self.gameEngine.isAlive(self.player1):
+                return 2
+            # If p2 is dead, chase p1
+            elif not self.gameEngine.isAlive(self.player2):
+                return 1
+
+        # When player lost life, he becomes imune to enemy. So while he is imune, he is of no iterest to us
+        if self.player1.imune:
+            print("P1 is imune, so i am chasing p2")
+            return 2
+        elif self.player2.imune:
+            print("P2 is imune, so i am chasing p1")
+            return 1
+        
         p1Coordinate = pos.Coordinate(self.player1.coordinate.row, self.player1.coordinate.column)
         p2Coordinate = pos.Coordinate(self.player2.coordinate.row, self.player2.coordinate.column)
         enemyCoordinate = pos.Coordinate(enemy.coordinate.row, enemy.coordinate.column)
@@ -210,8 +228,9 @@ class GameWindow(QMainWindow):
                 # Puca
                 pass
                 #desiredCoordinate.row += 1
-            self.player1_move_thread = Thread(None,self.move_player,args=[self.player1, desiredCoordinate], name="Player1Thread")
-            self.player1_move_thread.start()
+            if self.gameEngine.isAlive(self.player1) and self.player1.spawned:
+                self.player1_move_thread = Thread(None,self.move_player,args=[self.player1, desiredCoordinate], name="Player1Thread")
+                self.player1_move_thread.start()
 
         elif key == Qt.Key_Left or Qt.Key_Right or Qt.Key_Up or Qt.Key_0:
             
@@ -229,8 +248,9 @@ class GameWindow(QMainWindow):
                 # Puca
                 pass
                 #desiredCoordinate.row += 1
-            self.player2_move_thread = Thread(None,self.move_player,args=[self.player2, desiredCoordinate], name="Player2Thread")
-            self.player2_move_thread.start()
+            if self.gameEngine.isAlive(self.player2) and self.player2.spawned:
+                self.player2_move_thread = Thread(None,self.move_player,args=[self.player2, desiredCoordinate], name="Player2Thread")
+                self.player2_move_thread.start()
 
 
     
