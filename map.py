@@ -4,7 +4,7 @@ from PyQt5.QtCore import Qt, QThreadPool, pyqtSlot, QCoreApplication
 import pos
 import player
 import enemy
-import bullet
+import bubble
 from time import sleep
 
 LIVES_ROW_POS = 15
@@ -104,45 +104,149 @@ class Map(QFrame):
             return False
 
     # Method for checking if cordinate is available when jump or move is performed
+    # Needs refactoring
     def isCoordinateAvailable(self, checkCoordinate, entity):
-        if entity.action == "jump":
-            if self.isInMap(checkCoordinate):
-                entityAt = self.getEntityAtCoordinate(checkCoordinate)
-                if self.isPlayer(entity):
-                    # If we are player, and we are imune, we can go through enemy and through player
-                    if entity.imune:
-                        return True
-                    else:
-                        return not self.isPlayer(entityAt)
-                elif self.isEnemy(entity):
-                    # TODO: Check if enemy can get through player if player is imuned??
-                    return not self.isEnemy(entityAt)
+        if entity.action == "anti_gravity":
+            if self.isBubble(entity):
+                return self._canBubbleGoUp(bubble, checkCoordinate)
         else:
-            # If player is imuned, it can go through enemy, fuck yeaaah
             if self.isPlayer(entity):
-                if not entity.imune:
-                    return checkCoordinate in self.freeCoordinates
-                else:
-                    atCoordinate = self.getEntityAtCoordinate(checkCoordinate)
-                    if self.isEnemy(atCoordinate):
-                        return True
-                    else:
-                        return checkCoordinate in self.freeCoordinates
+                return self._canPlayerMoveOrJump(entity, checkCoordinate)
+            elif self.isEnemy(entity):
+                return self._canEnemyMoveOrJump(entity, checkCoordinate)
+            elif self.isBubble(entity):
+                return self._canBubbleMove(entity, checkCoordinate)
+    # Scenarios:
+    # 1. Bubble - Empty bubble,  enemy inside bubble or full bubble - can move/jump, full is taking life
+    # 2. Enemy - Can move/jump - if not imuned, we are loosing life
+    # 3. Player - Can NOT move/jump
+    # 4. Empty block - Can move/jump if it is in list of free coordinates
+    def _canPlayerMoveOrJump(self, player, coordinate):
+        if not self.isInMap(coordinate):
+            return False
+        
+        atCoordinate = self.getEntityAtCoordinate(coordinate)
+        if self.isBubble(atCoordinate):
+            # If it is a full bubble, loose a life. We will never be able to jump or move to our own full bubble
+            if atCoordinate.mode == 1:
+                player.takeAwayLife()
+                return True
             else:
-                return checkCoordinate in self.freeCoordinates
+                return True
+
+        elif self.isEnemy(atCoordinate):
+            if not player.imune:
+                self.playerLostLife(player)
+            return True
+        
+        elif self.isPlayer(atCoordinate):
+            return False
+        
+        else:
+            return coordinate in self.freeCoordinates
+
+
+    # Scenarios:
+    # 1. Bubble - Empty bubble,  enemy inside bubble or full bubble - can move/jump, full is taking life
+    # 2. Player - Can move/jump - if not imuned, we are taking his life
+    # 3. Enemy - Can NOT move/jump
+    # 4. Empty block - Can move/jump if it is in list of free coordinates
+    def _canEnemyMoveOrJump(self, enemy, coordinate):
+        atCoordinate = self.getEntityAtCoordinate(coordinate)
+        if self.isBubble(atCoordinate):
+            if atCoordinate.mode == 1:
+                enemy.destroyEnemy()
+                return True
+            else:
+                return True
+
+        elif self.isPlayer(atCoordinate):
+            if not atCoordinate.imune:
+                self.playerLostLife(atCoordinate)
+            return True
+
+        elif self.isEnemy(atCoordinate):
+            return False
+
+        else:
+            return coordinate in self.freeCoordinates
+
+    # Scenarios:
+    # 1. Enemy - Can move, in case we are full bubble, we are killing enemy
+    # 2. Player - Can move/jump - if not imuned, we are loosing life
+    # 3. Bubble - Can NOT move/jump
+    # 4. Empty block - Can move/jump if it is in list of free coordinates
+    def _canBubbleMove(self, bubble, coordinate):
+        atCoordinate = self.getEntityAtCoordinate(coordinate)
+        if self.isEnemy(atCoordinate):
+            if bubble.mode == 1:
+                atCoordinate.destroyEnemy()
+                bubble.mode = 2
+            return True
+        
+        elif self.isPlayer(atCoordinate):
+            if bubble.mode == 1:
+                atCoordinate.takeAwayLife()
+            return True
+
+        elif self.isBubble(atCoordinate):
+            self.destroyEntity(bubble)
+            self.destroyEntity(atCoordinate)
+            return False
+        
+        else:
+            return coordinate in self.freeCoordinates
     
+    # So far keep it as sideways bubble movment. Not sure if it stay the same?
+    def _canBubbleGoUp(self, bubble, coordinate):
+        atCoordinate = self.getEntityAtCoordinate(coordinate)
+        if self.isEnemy(atCoordinate):
+            if bubble.mode == 1:
+                atCoordinate.destroyEnemy()
+                bubble.mode = 2
+            return True
+        
+        elif self.isPlayer(atCoordinate):
+            if bubble.mode == 1:
+                atCoordinate.takeAwayLife()
+            return True
+
+        elif self.isBubble(atCoordinate):
+            bubble.destroyBubble()
+            atCoordinate.destroyBubble()
+            return True
+        
+        else:
+            return coordinate in self.freeCoordinates
+
+
     # Method for checking if we should apply coordinate on passed entity, by checking what is
     # bellow us
     def isGravityNeeded(self, entity):
         coordinateBellow = pos.Coordinate(entity.coordinate.row + 1, entity.coordinate.column)
-        entityAtCoordinate = self.getEntityAtCoordinate(coordinateBellow)
+        atCoordinate = self.getEntityAtCoordinate(coordinateBellow)
         
         if self.isPlayer(entity):
             # Player can land on:
             # 1. Wall
             # 2. Another player
             # 3. On bubble -> TODO    
-            if self._isWall(coordinateBellow) or self.isPlayer(entityAtCoordinate):
+            if self._isWall(coordinateBellow) or self.isPlayer(atCoordinate):
+                return False
+            elif self.isBubble(atCoordinate):
+                if atCoordinate.mode == 1:
+                    self.playerLostLife(entity)
+                    # Killed, return false, not really need to drop down
+                    return False
+                else:
+                    # For now when we fall, and encounter bubble which is not full, call foundBubble
+                    # For NOW we DON'T WANT on bubble which is going up.
+                    # TODO: If it is empty bubble - land on bubble, so return false here
+                    # TODO: If it is bubble which have enemy iside it - take points, destroy bubble and keep faling (return True) 
+                    entity.foundBubble(atCoordinate)
+                    return True
+            elif self.isEnemy(atCoordinate):
+                self.playerLostLife(entity)
                 return False
             else:
                 return True
@@ -151,7 +255,17 @@ class Map(QFrame):
             # Enemy can land on
             # 1. On wall
             # 2. On another enemy
-            if self._isWall(coordinateBellow) or self.isEnemy(entityAtCoordinate):
+            if self._isWall(coordinateBellow) or self.isEnemy(atCoordinate):
+                return False
+            elif self.isBubble(atCoordinate):
+                if atCoordinate.mode == 1:
+                    # If it is full bubble, we are dead
+                    self.destroyEntity(entity)
+                    return False
+                else:
+                    return True
+            elif self.isPlayer(atCoordinate):
+                self.playerLostLife(atCoordinate)
                 return False
             else:
                 return True
@@ -166,15 +280,11 @@ class Map(QFrame):
     def destroyEntity(self, entity):
         for pos in self.allPositions:
             if pos.coordinate == entity.coordinate:
-                if self.isPlayer(entity):
-                    if entity.id == 1:
-                        if self.p1_lives is not 0:
-                            self.p1_lives -= 1
-                    else:
-                        if self.p2_lives is not 0:
-                            self.p2_lives -= 1
+                if self.isPlayer(entity) or self.isBubble(entity) or self.isEnemy(entity):
+                    entity.coordinate = pos.Coordinate(-1,-1)
                     pos.entity = None
-                    if pos.coordinate not in self.freeCoordinates:
+                        
+                if pos.coordinate not in self.freeCoordinates:
                         self.freeCoordinates.append(pos.coordinate)
     
     def _isWall(self, coordinate):
@@ -182,6 +292,22 @@ class Map(QFrame):
             if pos.coordinate == coordinate:
                 return pos.wall
 
+    
+    def playerLostLife(self, player):
+        if player.id == 1:
+            self.p1_lives -= 1
+        else:
+            self.p2_lives -= 1
+        
+        player.takeAwayLife()
+        # If it was last life, remove it from map
+        if not player.isAlive():
+            self.destroyEntity(player)
+        else:
+            # Remove it from coordinate
+            self.destroyEntity(player)
+            player.afterLifeLoss()       
+    
     # Maybe move this 3 methods to some util?
     def isPlayer(self, entity):
         return isinstance(entity, player.Player)
@@ -189,8 +315,8 @@ class Map(QFrame):
     def isEnemy(self, entity):
         return isinstance(entity, enemy.Enemy)
     
-    def isBullet(self, entity):
-        return isinstance(entity, bullet.Bullet)
+    def isBubble(self, entity):
+        return isinstance(entity, bubble.Bubble)
     
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -219,6 +345,9 @@ class Map(QFrame):
         # Draw enemy
         elif self.isEnemy(position.entity):
             self._drawEnemy(position, painter)
+        # Draw bubble
+        elif self.isBubble(position.entity):
+            self._drawBubble(position, painter)
 
     def _drawPlayer1(self, position, painter):
         if position.entity.action == "move_right" or position.entity.action == "init":
@@ -257,6 +386,13 @@ class Map(QFrame):
         
         self._drawPixmap(painter, position.coordinate, position.entity.label)
 
+    def _drawBubble(self, position, painter):
+        if position.entity.mode == 1:
+            self._drawPixmap(painter, position.coordinate, position.entity.label_mode_1)
+        elif position.entity.mode == 2:
+            self._drawPixmap(painter, position.coordinate, position.entity.label_mode_2)
+        else:
+            self._drawPixmap(painter, position.coordinate, position.entity.label_mode_3)
     
     def _drawWall(self, position, painter):
         self._drawPixmap(painter, position.coordinate, 'map/map_block.png')
@@ -270,11 +406,11 @@ class Map(QFrame):
 
     def _drawP1Lives(self, painter, numOfLives):
         for i in range(numOfLives):
-            self._drawPixmap(painter, pos.Coordinate(LIVES_ROW_POS, i), 'characters/bub_right.png')
+            self._drawPixmap(painter, pos.Coordinate(LIVES_ROW_POS, i), 'characters/heart.png')
     
     def _drawP2Lives(self, painter, numOfLives):
         for i in range(numOfLives):
-            self._drawPixmap(painter, pos.Coordinate(LIVES_ROW_POS, P2_LIFE_1_COLUMN + i), 'characters/bob_left.png')
+            self._drawPixmap(painter, pos.Coordinate(LIVES_ROW_POS, P2_LIFE_1_COLUMN + i), 'characters/heart.png')
         
     def _drawPixmap(self, painter, coordinate, image):
         painter.drawPixmap(coordinate.column * self.block_w, coordinate.row * self.block_h, self.block_w, self.block_h, QPixmap(image))

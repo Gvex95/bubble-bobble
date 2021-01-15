@@ -9,6 +9,7 @@ import game_engine
 import player
 import pos
 import enemy
+import bubble
 
 from threading import Thread
 from time import sleep
@@ -40,23 +41,25 @@ class GameWindow(QMainWindow):
         self.key_notifier.key_signal.connect(self.keyPressListener)
         self.key_notifier.start()
 
-        # Add threads for player's movment
+        # Add threads
         self.player1_move_thread = None
         self.player2_move_thread = None
+        self.player1_shoot_thread = None
+        self.player2_shoot_thread = None
         self.enemies_thread = None
 
         # Create and sutup players
         self.player1 = player.Player(list_of_names[0], 1)
         self.player2 = player.Player(list_of_names[1], 2)
-        self.player1.setupPlayer(P1_INIT_COORDINATE)
-        self.player2.setupPlayer(P2_INIT_COORDINATE)
+        self.player1.setupPlayer(P1_INIT_COORDINATE, self.gameEngine)
+        self.player2.setupPlayer(P2_INIT_COORDINATE, self.gameEngine)
 
         self.running = True
 
         # Setup initial level number and number of enemies
         self.level = 1
-        self.numOfEnemies = 2
-        self.thinkTime = 0.3
+        self.numOfEnemies = 1
+        self.thinkTime = 0.6
 
         # Move player to their initial positions
         self.gameEngine.move(self.player1.initCoordinate, self.player1)
@@ -95,16 +98,14 @@ class GameWindow(QMainWindow):
             self.enemies.append(e)
 
         #Comment out this if u don't want to start enemies
-        self.initEnemies()
+        #self.initEnemies()
 
     def initEnemies(self):
         for enemy in self.enemies: 
             self.gameEngine.move(ENEMY_INIT_COORDIATE, enemy)
             self.enemies_thread = Thread(None,self.startAI,args=[enemy], name="EnemiesThread", daemon=True)
             self.enemies_thread.start()
-            # This should give us enough time to move enemy that was spawned here and to move here second enemy
             ENEMY_INIT_COORDIATE.column += 1
-
 
     def startAI(self, enemy):        
         while(self.running):
@@ -132,7 +133,7 @@ class GameWindow(QMainWindow):
                     print("Fuck it, i am confused, just go right, as real patriot")
                     enemy.action = "move_right"
                     self.gameEngine.move(pos.Coordinate(enemy.coordinate.row, enemy.coordinate.column + 1), enemy)
-                else:
+                elif desiredCoordinate.row < enemy.coordinate.row:
                     enemy.action = "jump"
                     self.gameEngine.move(pos.Coordinate(enemy.coordinate.row-1 , enemy.coordinate.column), enemy)
 
@@ -142,15 +143,15 @@ class GameWindow(QMainWindow):
     def getCloserPlayer(self, enemy):
         print("Get closer player called")
         # If both players are dead, stop game
-        if not self.gameEngine.isAlive(self.player1) and not self.gameEngine.isAlive(self.player2):
+        if not self.player1.isAlive() and not self.player2.isAlive():
             print("Killed both players, stopping game...")
             self.running = False
         else:
             # If p1 is dead, chase p2
-            if not self.gameEngine.isAlive(self.player1):
+            if not self.player1.isAlive():
                 return 2
             # If p2 is dead, chase p1
-            elif not self.gameEngine.isAlive(self.player2):
+            elif not self.player2.isAlive():
                 return 1
 
         # When player lost life, he becomes imune to enemy. So while he is imune, he is of no iterest to us
@@ -186,15 +187,31 @@ class GameWindow(QMainWindow):
         
             if coordinate.column > current_coordinate.column:
                 player.action = "move_right"
+                player.dir = "right"
                 self.gameEngine.move(coordinate, player)
             elif coordinate.column < current_coordinate.column:
                 player.action = "move_left"
+                player.dir = "left"
                 self.gameEngine.move(coordinate, player)
             else:
                 if coordinate.row < current_coordinate.row:
                     player.action = "jump"
                     self.gameEngine.move(coordinate, player)
             player.canMove = True
+
+    def shoot(self, player):
+        bub = bubble.Bubble(player.id)
+        bub.setupBubble()
+        coordinate = pos.Coordinate(-1,-1)
+        
+        if player.dir == "right":
+            bub.action = "shoot_r"
+            coordinate.setCoordinate(player.coordinate.row, player.coordinate.column + 1)
+        elif player.dir == "left":
+            bub.action = "shoot_l"
+            coordinate.setCoordinate(player.coordinate.row, player.coordinate.column - 1)
+    
+        self.gameEngine.move(coordinate, bub)
 
     def center_window(self):
         screen = QDesktopWidget().screenGeometry()
@@ -217,6 +234,7 @@ class GameWindow(QMainWindow):
             current_row = self.player1.coordinate.row
             current_column = self.player1.coordinate.column
             desiredCoordinate = pos.Coordinate(current_row,current_column)
+            shoot = False
             
             if key == Qt.Key_A:
                 desiredCoordinate.column -= 1
@@ -225,18 +243,21 @@ class GameWindow(QMainWindow):
             elif key == Qt.Key_W:
                 desiredCoordinate.row -= 1
             else:
-                # Puca
-                pass
-                #desiredCoordinate.row += 1
-            if self.gameEngine.isAlive(self.player1) and self.player1.spawned:
+                shoot = True
+            if self.player1.isAlive() and self.player1.spawned:
                 self.player1_move_thread = Thread(None,self.move_player,args=[self.player1, desiredCoordinate], name="Player1Thread")
                 self.player1_move_thread.start()
+                
+                if shoot:
+                    self.player1_shoot_thread = Thread(None, self.shoot, args=[self.player1], name="Player1ShootThread")
+                    self.player1_shoot_thread.start()
 
         elif key == Qt.Key_Left or Qt.Key_Right or Qt.Key_Up or Qt.Key_0:
             
             current_row = self.player2.coordinate.row
             current_column = self.player2.coordinate.column
             desiredCoordinate = pos.Coordinate(current_row,current_column)
+            shoot = False
 
             if key == Qt.Key_Left :
                 desiredCoordinate.column -= 1
@@ -245,12 +266,14 @@ class GameWindow(QMainWindow):
             elif key == Qt.Key_Up:
                 desiredCoordinate.row -= 1
             else:
-                # Puca
-                pass
-                #desiredCoordinate.row += 1
-            if self.gameEngine.isAlive(self.player2) and self.player2.spawned:
+                shoot = True
+            if self.player2.isAlive() and self.player2.spawned:
                 self.player2_move_thread = Thread(None,self.move_player,args=[self.player2, desiredCoordinate], name="Player2Thread")
                 self.player2_move_thread.start()
+                
+                if shoot:
+                    self.player2_shoot_thread = Thread(None, self.shoot, args=[self.player2], name="Player2ShootThread")
+                    self.player2_shoot_thread.start()
 
 
     

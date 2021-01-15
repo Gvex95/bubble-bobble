@@ -17,5 +17,8 @@ class Enemy():
     def getCoordinate(self):
         return self.coordinate
 
+    def destroyEnemy(self):
+        pass
+
     def __str__(self):
-        return "Enemy: " + self.name + " " + str(self.coordinate)
+        return "Enemy: [name: " + self.name + ", cor: " + str(self.coordinate) + "]"

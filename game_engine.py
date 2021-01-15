@@ -1,6 +1,6 @@
 import player
 import enemy
-import bullet
+import bubble
 import pos
 from time import sleep
 from time import monotonic as timer
@@ -8,16 +8,18 @@ from threading import Thread
 
 JUMP_SLEEP_DURATION = 0.0300
 GRAVITY_SLEEP_DURATION = 0.0600
-PLAYER_IMUNE_TIME = 4
-PLAYER_RESPAWN_TIME_SEC = 2
+BUBBLE_SPEED = 0.04
+
+BUBBLE_TOP_ROW = 1
+BUBBLE_TOP_TIME = 7
+BUBBLE_ANTI_GRAVITY_SLEEP = 0.5
 class GameEngine():
     def __init__(self, map):
         self.map = map
         self.entity = None
-        self.imuneTimerThreadP1 = None
-        self.movePlayerAfterLifeLossThreadP1 = None
-        self.imuneTimerThreadP2 = None
-        self.movePlayerAfterLifeLossThreadP2 = None
+
+        self.bubbleStayOnMapTimerThread = None
+        self.bubbleAntiGravityThread = None
         
     def move(self, coordinate, entity):
         if entity.action == "jump":
@@ -28,6 +30,10 @@ class GameEngine():
         if self.map.isCoordinateAvailable(checkCoordinate, entity):
             if entity.action == "jump":
                 self.jump(coordinate, entity)
+            
+            elif entity.action == "shoot_r" or entity.action == "shoot_l":
+                self.shoot(coordinate, entity)
+
             else:
                 self.move_success(coordinate, entity)
                 self.gravity(entity)
@@ -36,6 +42,28 @@ class GameEngine():
             self.move_failed(coordinate, entity)
             return False
                     
+
+    def shoot(self, coordinate, entity):
+        print("Bubble shoot called with coordinate: ", coordinate)
+        cor = pos.Coordinate(coordinate.row, coordinate.column)
+        for i in range(3):
+            sleep(BUBBLE_SPEED)
+            if self.map.isCoordinateAvailable(cor, entity):
+                self.move_success(cor, entity)
+                if entity.action == "shoot_r":
+                    cor.column += 1
+                elif entity.action == "shoot_l":
+                    cor.column -= 1
+            else:
+                break
+        
+        print("Bubble shoot ended, now coordinate is: ", entity.coordinate)
+        # After shoot is done, we need to start moving bubble on top
+        cor = pos.Coordinate(entity.coordinate.row - 1, entity.coordinate.column)
+        self.bubbleAntiGravityThread = Thread(None, self.bubbleAntiGravity, args=[entity, cor], name="BubbleAGThread")
+        self.bubbleAntiGravityThread.start()
+
+
     def jump(self, coordinate, entity):
         for i in range(3):
             sleep(JUMP_SLEEP_DURATION)
@@ -48,124 +76,17 @@ class GameEngine():
     def move_success(self, coordinate, entity):
         oldCoordinate = pos.Coordinate(entity.coordinate.row, entity.coordinate.column)        
         entity.coordinate.setCoordinate(coordinate.row, coordinate.column)
-        print("Entity: ", entity.name, " executed action: ", entity.action, " from: ", oldCoordinate, " to: ", coordinate)
+        print("Entity: ", entity, " executed action: ", entity.action, " from: ", oldCoordinate, " to: ", coordinate)
         self.map.updateMap(oldCoordinate, coordinate, entity)
 
     def move_failed(self, coordinate, entity):
         onCoordinate = self.map.getEntityAtCoordinate(coordinate)
         if onCoordinate == None:
             onCoordinate = " wall"
-        
-        if self.map.isPlayer(entity):
-            if self.map.isEnemy(onCoordinate):
-                # Player have crashed with enemy
-                if not entity.imune:
-                    self.takeAwayLife(entity)
-        elif self.map.isEnemy(entity):
-            if self.map.isPlayer(onCoordinate):
-                # Enemy have crashed with player
-                if not onCoordinate.imune:
-                    self.takeAwayLife(onCoordinate)
-
-        print("Entity:", entity.name, " can not execute action: ", entity.action, " from: ", entity.coordinate, " to: ", coordinate
+    
+        print("Entity:", entity, " can not execute action: ", entity.action, " from: ", entity.coordinate, " to: ", coordinate
         , ", it have colided with:", onCoordinate)
     
-    def takeAwayLife(self, player):
-        player.lifes -= 1
-        print("Player: ", player, " have lost a life. Remaining: ", player.lifes)
-        
-        # Check if this was last life, destroy player
-        if not self.isAlive(player):
-            print("ALL LIFES WASTED, KILLING PLAYER!!!")
-            self.destroyEntity(player)
-            return
-
-        # Should remove player from this position
-        self.destroyEntity(player)
-        print("Player ", player, " removed from map")
-
-        # Reset coordinates and set player to be imuned, so enemy is not interested in us anymore!
-        player.coordinate = pos.Coordinate(-1, -1)
-        player.imune = True
-        # Disable pressing buttons untill player is not again spawned on map
-        player.spawned = False
-        
-        # Create imune time thread, which will start when we return to our init pos
-        # Try to move player to init pos, after life loss
-        if player.id == 1:        
-            self.imuneTimerThreadP1 = Thread(None,self.startImuneTimer,args=[player, PLAYER_IMUNE_TIME], name="imuneTimerThread")
-            self.movePlayerAfterLifeLossThreadP1 = Thread(None,self.movePlayerAfterLifeLoss,args=[player], name="moveAfterLifeLossThread")
-            self.movePlayerAfterLifeLossThreadP1.start()
-        else:
-            self.imuneTimerThreadP2 = Thread(None,self.startImuneTimer,args=[player, PLAYER_IMUNE_TIME], name="imuneTimerThread")
-            self.movePlayerAfterLifeLossThreadP2 = Thread(None,self.movePlayerAfterLifeLoss,args=[player], name="moveAfterLifeLossThread")
-            self.movePlayerAfterLifeLossThreadP2.start()
-   
-    # Timer which run for N[passed] seconds. After that player is not imune anymore
-    def startImuneTimer(self, player, seconds):
-        endtime = timer() + seconds
-        while timer() < endtime:
-            pass
-        player.imune = False
-        print("Timer have expired, player: ", player, " is becoming pussy again")
-
-    # Try to move player to his init coordinate
-    # If someone is on his init coordinate,
-    # wait 2 seconds and try again.
-    def movePlayerAfterLifeLoss(self, player):
-        player.action = "init"
-        sleep(PLAYER_RESPAWN_TIME_SEC)
-        moved = self.move(player.initCoordinate, player)
-        if moved:
-            print("Player is moved to init position in first attempt")
-            if player.id == 1:
-                self.imuneTimerThreadP1.start()
-            else:
-                self.imuneTimerThreadP2.start()
-            player.spawned = True
-            return
-        while (not moved):
-            moved = self.move(player.initCoordinate, player)
-            if not moved:
-                print("Can't move player: ", player, " to init pos")
-                sleep(PLAYER_RESPAWN_TIME_SEC)
-            else:
-                # If we can move, check if on his init coordiate is enemy
-                # If it is than we don't want to move, instead we need to wait
-                # Maybe move it to init position, because we will be imuned?
-                e = self.map.getEntityAtCoordinate(player.initCoordinate)
-                if self.map.isEnemy(e):
-                    moved = False
-                    sleep(PLAYER_RESPAWN_TIME_SEC)
-                else:
-                    print("Can't move player ", player, " to init pos, there is enemy there: ", e)
-
-        print("Manage to put player at init position after some time")
-        if player.id == 1:
-            self.imuneTimerThreadP1.start()
-        else:
-            self.imuneTimerThreadP2.start()
-        player.spawned = True
-
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    # Invoked when
-    # 1. Player lost life
-    # 2. TODO: Enemy is killed
-    # 3. TODO: Bullet disapear
-    def destroyEntity(self, entity):
-        print("DESTROYING ENTITY: ", entity)
-        if self.map.isPlayer(entity):
-            self.map.destroyEntity(entity)
-
-
     def gravity(self, entity):
         if not self.map.isGravityNeeded(entity):
             return
@@ -180,6 +101,24 @@ class GameEngine():
                 self.move_success(coordinateBellow, entity)
                 coordinateBellow.row += 1
 
-    def isAlive(self, entitity):
-        return not entitity.lifes is 0
+    def bubbleAntiGravity(self, bubble, coordinate):
+        bubble.action = "anti_gravity"
+        bubble.mode = 2
+        while(coordinate.row is not BUBBLE_TOP_ROW):
+            sleep(BUBBLE_ANTI_GRAVITY_SLEEP)
+            # At this point, we don't want to check entities above us as we go up
+            # TODO: Implement this
+            self.move_success(coordinate, bubble)
+            coordinate.row -= 1
+            
+                        
+        # After it have been moved to row = 2, start timer which will destroy it after n seconds
+        self.bubbleStayOnMapTimerThread = Thread(None,self.startBubbleTimer,args=[bubble, BUBBLE_TOP_TIME], name="bubbleAliveTimerThread")
+        self.bubbleStayOnMapTimerThread.start()
+
+    def startBubbleTimer(self, bubble, seconds):
+        endtime = timer() + seconds
+        while timer() < endtime:
+            pass
+        self.map.destroyEntity(bubble)
             
