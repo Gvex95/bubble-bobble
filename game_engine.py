@@ -8,10 +8,10 @@ from threading import Thread
 
 JUMP_SLEEP_DURATION = 0.0300
 GRAVITY_SLEEP_DURATION = 0.0600
-BUBBLE_SPEED = 0.04
+BUBBLE_SPEED = 0.2
 
 BUBBLE_TOP_ROW = 1
-BUBBLE_TOP_TIME = 7
+BUBBLE_TOP_TIME = 6
 BUBBLE_ANTI_GRAVITY_SLEEP = 0.5
 class GameEngine():
     def __init__(self, map):
@@ -22,12 +22,12 @@ class GameEngine():
         self.bubbleAntiGravityThread = None
         
     def move(self, coordinate, entity):
-        if entity.action == "jump":
-            checkCoordinate = pos.Coordinate(coordinate.row-2, coordinate.column)
-        else:
-            checkCoordinate = coordinate
+        #if entity.action == "jump":
+            #checkCoordinate = pos.Coordinate(coordinate.row-2, coordinate.column)
+        #else:
+            #checkCoordinate = coordinate
         
-        if self.map.isCoordinateAvailable(checkCoordinate, entity):
+        if self.map.isCoordinateAvailable(coordinate, entity):
             if entity.action == "jump":
                 self.jump(coordinate, entity)
             
@@ -43,32 +43,36 @@ class GameEngine():
             return False
                     
 
-    def shoot(self, coordinate, entity):
-        print("Bubble shoot called with coordinate: ", coordinate)
+    def shoot(self, coordinate, bubble):
+        print("Bubble shoot called for bubble: ", bubble, " with coordinate: ", coordinate)
         cor = pos.Coordinate(coordinate.row, coordinate.column)
         for i in range(3):
             sleep(BUBBLE_SPEED)
-            if self.map.isCoordinateAvailable(cor, entity):
-                self.move_success(cor, entity)
-                if entity.action == "shoot_r":
+            if self.map.isCoordinateAvailable(cor, bubble) and bubble.isAlive():
+                self.move_success(cor, bubble)
+                if bubble.action == "shoot_r":
                     cor.column += 1
-                elif entity.action == "shoot_l":
+                elif bubble.action == "shoot_l":
                     cor.column -= 1
             else:
                 break
         
-        print("Bubble shoot ended, now coordinate is: ", entity.coordinate)
+        print("Bubble shoot ended for bubble: ", bubble, " now coordinate is: ", bubble.coordinate)
         # After shoot is done, we need to start moving bubble on top
-        cor = pos.Coordinate(entity.coordinate.row - 1, entity.coordinate.column)
-        self.bubbleAntiGravityThread = Thread(None, self.bubbleAntiGravity, args=[entity, cor], name="BubbleAGThread")
+        cor = pos.Coordinate(bubble.coordinate.row - 1, bubble.coordinate.column)
+        self.bubbleAntiGravityThread = Thread(None, self.bubbleAntiGravity, args=[bubble, cor], name="BubbleAGThread")
         self.bubbleAntiGravityThread.start()
 
 
     def jump(self, coordinate, entity):
+        cor = pos.Coordinate(coordinate.row, coordinate.column)
         for i in range(3):
             sleep(JUMP_SLEEP_DURATION)
-            self.move_success(coordinate, entity)
-            coordinate.row = coordinate.row - 1
+            if self.map.isCoordinateAvailable(cor, entity):
+                self.move_success(cor, entity)
+                cor.row = cor.row - 1
+            else:
+                break
                 
         # when we finish jump we need to check for gravity
         self.gravity(entity)
@@ -76,7 +80,7 @@ class GameEngine():
     def move_success(self, coordinate, entity):
         oldCoordinate = pos.Coordinate(entity.coordinate.row, entity.coordinate.column)        
         entity.coordinate.setCoordinate(coordinate.row, coordinate.column)
-        print("Entity: ", entity, " executed action: ", entity.action, " from: ", oldCoordinate, " to: ", coordinate)
+        #print("Entity: ", entity, " executed action: ", entity.action, " from: ", oldCoordinate, " to: ", coordinate)
         self.map.updateMap(oldCoordinate, coordinate, entity)
 
     def move_failed(self, coordinate, entity):
@@ -84,8 +88,8 @@ class GameEngine():
         if onCoordinate == None:
             onCoordinate = " wall"
     
-        print("Entity:", entity, " can not execute action: ", entity.action, " from: ", entity.coordinate, " to: ", coordinate
-        , ", it have colided with:", onCoordinate)
+        #print("Entity:", entity, " can not execute action: ", entity.action, " from: ", entity.coordinate, " to: ", coordinate
+        #, ", it have colided with:", onCoordinate)
     
     def gravity(self, entity):
         if not self.map.isGravityNeeded(entity):

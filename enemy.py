@@ -22,3 +22,4 @@ class Enemy():
 
     def __str__(self):
         return "Enemy: [name: " + self.name + ", cor: " + str(self.coordinate) + "]"
+

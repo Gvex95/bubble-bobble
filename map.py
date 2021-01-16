@@ -127,12 +127,24 @@ class Map(QFrame):
         
         atCoordinate = self.getEntityAtCoordinate(coordinate)
         if self.isBubble(atCoordinate):
+            
             # If it is a full bubble, loose a life. We will never be able to jump or move to our own full bubble
-            if atCoordinate.mode == 1:
-                player.takeAwayLife()
-                return True
-            else:
-                return True
+            if atCoordinate.mode == 1 and not player.imune:
+                self.playerLostLife(player)
+            elif atCoordinate.mode == 1 and player.imune:
+                self.destroyEntity(atCoordinate)
+            # If we encounter empty bubble 
+            elif atCoordinate.mode == 2 or atCoordinate.mode == 3:
+                if player.action == "jump":
+                    # We can jump and pop baloon
+                    self.destroyEntity(atCoordinate)
+                    #TODO: Increase score if we pop empty baloon or if it was baloon with enemy, generate fruit
+                    return True
+                else:
+                    # When we move sideways and encounter empty ballon, just return false
+                    return False
+
+            return True
 
         elif self.isEnemy(atCoordinate):
             if not player.imune:
@@ -142,6 +154,9 @@ class Map(QFrame):
         elif self.isPlayer(atCoordinate):
             return False
         
+        elif self._isWall(coordinate):
+            return True
+
         else:
             return coordinate in self.freeCoordinates
 
@@ -177,23 +192,48 @@ class Map(QFrame):
     # 3. Bubble - Can NOT move/jump
     # 4. Empty block - Can move/jump if it is in list of free coordinates
     def _canBubbleMove(self, bubble, coordinate):
+        print("Bubble: ", bubble, " want to move to coordinate: ", coordinate)
         atCoordinate = self.getEntityAtCoordinate(coordinate)
         if self.isEnemy(atCoordinate):
             if bubble.mode == 1:
-                atCoordinate.destroyEnemy()
+                # destroy enemy
+                # self.destroyEntity(atCoordinate)
+                # self.removeCoordinate(coordinate)
                 bubble.mode = 2
             return True
         
         elif self.isPlayer(atCoordinate):
-            if bubble.mode == 1:
-                atCoordinate.takeAwayLife()
+            if bubble.mode == 1 and not atCoordinate.imune:
+                self.playerLostLife(atCoordinate)
+                bubble.mode = 2
+            elif bubble.mode == 1 and atCoordinate.imune:
+                self.destroyEntity(bubble)
             return True
 
         elif self.isBubble(atCoordinate):
-            self.destroyEntity(bubble)
-            self.destroyEntity(atCoordinate)
-            return False
+            print("Moving bubble: ", bubble, " encountered bubble: ", atCoordinate)
+            
+            # If bubbly is carrying enemy, we DON'T want to destroy it. Insead destroy ourselvs if we are not carying enemy
+            if atCoordinate.mode == 3:
+                if bubble.mode is not 3:
+                    self.destroyEntity(bubble)
+                return False
+            elif bubble.mode == 3:
+                if atCoordinate.mode is not 3:
+                    self.destroyEntity(atCoordinate)
+                return False
+            else:
+                # Important thing is not to change order. Bubble that want to take position of
+                # another bubble needs to be destoryed after encountered bubble, to prevent encountered
+                # bubble to keep moving after destruction.            
+                self.destroyEntity(atCoordinate)
+                self.destroyEntity(bubble)
+                return False
         
+        elif self._isWall(coordinate):
+            self.destroyEntity(bubble)
+            return False
+
         else:
             return coordinate in self.freeCoordinates
     
@@ -243,7 +283,7 @@ class Map(QFrame):
                     # For NOW we DON'T WANT on bubble which is going up.
                     # TODO: If it is empty bubble - land on bubble, so return false here
                     # TODO: If it is bubble which have enemy iside it - take points, destroy bubble and keep faling (return True) 
-                    entity.foundBubble(atCoordinate)
+                    #entity.foundBubble(atCoordinate)
                     return True
             elif self.isEnemy(atCoordinate):
                 self.playerLostLife(entity)
@@ -275,17 +315,24 @@ class Map(QFrame):
             if p.coordinate == coordinate:
                 return p.entity
                 
-    # Destroy entitity from coordinates he was on
-    # Add that coordinates to list of free coordinates
+    # Destroy entitity from coordinate he was on
+    # Also add coordinate to list of freeCoordinates
     def destroyEntity(self, entity):
-        for pos in self.allPositions:
-            if pos.coordinate == entity.coordinate:
-                if self.isPlayer(entity) or self.isBubble(entity) or self.isEnemy(entity):
-                    entity.coordinate = pos.Coordinate(-1,-1)
-                    pos.entity = None
-                        
-                if pos.coordinate not in self.freeCoordinates:
-                        self.freeCoordinates.append(pos.coordinate)
+        for p in self.allPositions:
+            if p.coordinate == entity.coordinate:
+                if self.isPlayer(entity):
+                    entity.coordinate = pos.Coordinate(-1, -1)
+                    p.entity = None
+                    if p.coordinate not in self.freeCoordinates:
+                        self.freeCoordinates.append(p.coordinate)
+                elif self.isBubble(entity) or self.isEnemy(entity):
+                    entity.coordinate = pos.Coordinate(-1, -1)
+                    print("Entity: ", entity, " is no more alive!!!")
+                    entity.alive = False
+                    p.entity = None
+                    if p.coordinate not in self.freeCoordinates:
+                        self.freeCoordinates.append(p.coordinate)
+    
     
     def _isWall(self, coordinate):
         for pos in self.allPositions:

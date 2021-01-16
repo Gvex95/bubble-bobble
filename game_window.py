@@ -201,13 +201,20 @@ class GameWindow(QMainWindow):
 
     def shoot(self, player):
         bub = bubble.Bubble(player.id)
-        bub.setupBubble()
         coordinate = pos.Coordinate(-1,-1)
         
         if player.dir == "right":
+            if player.id == 1:
+                bub.setupBubble(1)
+            else:
+                bub.setupBubble(1)
             bub.action = "shoot_r"
             coordinate.setCoordinate(player.coordinate.row, player.coordinate.column + 1)
         elif player.dir == "left":
+            if player.id == 1:
+                bub.setupBubble(1)
+            else:
+                bub.setupBubble(1)  
             bub.action = "shoot_l"
             coordinate.setCoordinate(player.coordinate.row, player.coordinate.column - 1)
     

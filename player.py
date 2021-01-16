@@ -4,7 +4,7 @@ from time import monotonic as timer
 from threading import Thread
 
 
-PLAYER_IMUNE_TIME = 4
+PLAYER_IMUNE_TIME = 10
 PLAYER_RESPAWN_TIME_SEC = 2
 
 class Player():
